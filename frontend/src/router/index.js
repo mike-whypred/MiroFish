@@ -6,12 +6,18 @@ import SimulationRunView from '../views/SimulationRunView.vue'
 import ReportView from '../views/ReportView.vue'
 import InteractionView from '../views/InteractionView.vue'
 import Leaderboard from '../views/Leaderboard.vue'
+import BriefBuilder from '../views/BriefBuilder.vue'
 
 const routes = [
   {
     path: '/',
     name: 'Home',
     component: Home
+  },
+  {
+    path: '/brief-builder',
+    name: 'BriefBuilder',
+    component: BriefBuilder
   },
   {
     path: '/process/:projectId',
