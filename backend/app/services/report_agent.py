@@ -22,9 +22,9 @@ from ..config import Config
 from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from .zep_tools import (
-    ZepToolsService, 
-    SearchResult, 
-    InsightForgeResult, 
+    ZepToolsService,
+    SearchResult,
+    InsightForgeResult,
     PanoramaResult,
     InterviewResult
 )
@@ -32,18 +32,105 @@ from .zep_tools import (
 logger = get_logger('mirofish.report_agent')
 
 
+# ═══════════════════════════════════════════════════════════════
+# Structured Investment Report Data Classes
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class ScenarioData:
+    """A single scenario in the structured report"""
+    label: str  # e.g., "Bull Case", "Bear Case", "Base Case"
+    probability: float
+    description: str
+    key_triggers: List[str]
+    agent_convergence: Dict[str, Any]  # agent_count, pct_of_total, top_contributing_agents
+    implied_outcome: str
+
+
+@dataclass
+class WeightedConsensus:
+    """Weighted consensus from agent predictions"""
+    most_likely_scenario: str
+    confidence: float
+    disagreement_index: float
+    high_conviction_agents: List[str]
+    contrarian_signals: List[str]
+
+
+@dataclass
+class AgentAttribution:
+    """Attribution data for a single agent"""
+    agent_id: str
+    persona: str
+    predicted_outcome: str
+    confidence: float
+    historical_hit_rate: float
+    weight_applied: float
+    weighted_contribution: str
+
+
+@dataclass
+class StructuredInvestmentReport:
+    """Structured investment-grade report output"""
+    simulation_id: str
+    question: str
+    generated_at: str
+    scenarios: List[ScenarioData]
+    weighted_consensus: WeightedConsensus
+    agent_attribution: List[AgentAttribution]
+    methodology_note: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "simulation_id": self.simulation_id,
+            "question": self.question,
+            "generated_at": self.generated_at,
+            "scenarios": [
+                {
+                    "label": s.label,
+                    "probability": s.probability,
+                    "description": s.description,
+                    "key_triggers": s.key_triggers,
+                    "agent_convergence": s.agent_convergence,
+                    "implied_outcome": s.implied_outcome
+                }
+                for s in self.scenarios
+            ],
+            "weighted_consensus": {
+                "most_likely_scenario": self.weighted_consensus.most_likely_scenario,
+                "confidence": self.weighted_consensus.confidence,
+                "disagreement_index": self.weighted_consensus.disagreement_index,
+                "high_conviction_agents": self.weighted_consensus.high_conviction_agents,
+                "contrarian_signals": self.weighted_consensus.contrarian_signals
+            },
+            "agent_attribution": [
+                {
+                    "agent_id": a.agent_id,
+                    "persona": a.persona,
+                    "predicted_outcome": a.predicted_outcome,
+                    "confidence": a.confidence,
+                    "historical_hit_rate": a.historical_hit_rate,
+                    "weight_applied": a.weight_applied,
+                    "weighted_contribution": a.weighted_contribution
+                }
+                for a in self.agent_attribution
+            ],
+            "methodology_note": self.methodology_note
+        }
+
+
 class ReportLogger:
     """
     Report Agent 详细日志记录器
-    
+
     在报告文件夹中生成 agent_log.jsonl 文件，记录每一步详细动作。
     每行是一个完整的 JSON 对象，包含时间戳、动作类型、详细内容等。
     """
-    
+
     def __init__(self, report_id: str):
         """
         初始化日志记录器
-        
+
         Args:
             report_id: 报告ID，用于确定日志文件路径
         """
@@ -53,19 +140,19 @@ class ReportLogger:
         )
         self.start_time = datetime.now()
         self._ensure_log_file()
-    
+
     def _ensure_log_file(self):
         """确保日志文件所在目录存在"""
         log_dir = os.path.dirname(self.log_file_path)
         os.makedirs(log_dir, exist_ok=True)
-    
+
     def _get_elapsed_time(self) -> float:
         """获取从开始到现在的耗时（秒）"""
         return (datetime.now() - self.start_time).total_seconds()
-    
+
     def log(
-        self, 
-        action: str, 
+        self,
+        action: str,
         stage: str,
         details: Dict[str, Any],
         section_title: str = None,
@@ -73,7 +160,7 @@ class ReportLogger:
     ):
         """
         记录一条日志
-        
+
         Args:
             action: 动作类型，如 'start', 'tool_call', 'llm_response', 'section_complete' 等
             stage: 当前阶段，如 'planning', 'generating', 'completed'
@@ -91,11 +178,11 @@ class ReportLogger:
             "section_index": section_index,
             "details": details
         }
-        
+
         # 追加写入 JSONL 文件
         with open(self.log_file_path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
-    
+
     def log_start(self, simulation_id: str, graph_id: str, simulation_requirement: str):
         """记录报告生成开始"""
         self.log(
@@ -108,7 +195,7 @@ class ReportLogger:
                 "message": "报告生成任务开始"
             }
         )
-    
+
     def log_planning_start(self):
         """记录大纲规划开始"""
         self.log(
@@ -116,7 +203,7 @@ class ReportLogger:
             stage="planning",
             details={"message": "开始规划报告大纲"}
         )
-    
+
     def log_planning_context(self, context: Dict[str, Any]):
         """记录规划时获取的上下文信息"""
         self.log(
@@ -127,7 +214,7 @@ class ReportLogger:
                 "context": context
             }
         )
-    
+
     def log_planning_complete(self, outline_dict: Dict[str, Any]):
         """记录大纲规划完成"""
         self.log(
@@ -138,7 +225,7 @@ class ReportLogger:
                 "outline": outline_dict
             }
         )
-    
+
     def log_section_start(self, section_title: str, section_index: int):
         """记录章节生成开始"""
         self.log(
@@ -148,7 +235,7 @@ class ReportLogger:
             section_index=section_index,
             details={"message": f"开始生成章节: {section_title}"}
         )
-    
+
     def log_react_thought(self, section_title: str, section_index: int, iteration: int, thought: str):
         """记录 ReACT 思考过程"""
         self.log(
@@ -162,12 +249,12 @@ class ReportLogger:
                 "message": f"ReACT 第{iteration}轮思考"
             }
         )
-    
+
     def log_tool_call(
-        self, 
-        section_title: str, 
+        self,
+        section_title: str,
         section_index: int,
-        tool_name: str, 
+        tool_name: str,
         parameters: Dict[str, Any],
         iteration: int
     ):
@@ -184,7 +271,7 @@ class ReportLogger:
                 "message": f"调用工具: {tool_name}"
             }
         )
-    
+
     def log_tool_result(
         self,
         section_title: str,
@@ -207,7 +294,7 @@ class ReportLogger:
                 "message": f"工具 {tool_name} 返回结果"
             }
         )
-    
+
     def log_llm_response(
         self,
         section_title: str,
@@ -232,7 +319,7 @@ class ReportLogger:
                 "message": f"LLM 响应 (工具调用: {has_tool_calls}, 最终答案: {has_final_answer})"
             }
         )
-    
+
     def log_section_content(
         self,
         section_title: str,
@@ -253,7 +340,7 @@ class ReportLogger:
                 "message": f"章节 {section_title} 内容生成完成"
             }
         )
-    
+
     def log_section_full_complete(
         self,
         section_title: str,
@@ -276,7 +363,7 @@ class ReportLogger:
                 "message": f"章节 {section_title} 生成完成"
             }
         )
-    
+
     def log_report_complete(self, total_sections: int, total_time_seconds: float):
         """记录报告生成完成"""
         self.log(
@@ -288,7 +375,7 @@ class ReportLogger:
                 "message": "报告生成完成"
             }
         )
-    
+
     def log_error(self, error_message: str, stage: str, section_title: str = None):
         """记录错误"""
         self.log(
@@ -306,15 +393,15 @@ class ReportLogger:
 class ReportConsoleLogger:
     """
     Report Agent 控制台日志记录器
-    
+
     将控制台风格的日志（INFO、WARNING等）写入报告文件夹中的 console_log.txt 文件。
     这些日志与 agent_log.jsonl 不同，是纯文本格式的控制台输出。
     """
-    
+
     def __init__(self, report_id: str):
         """
         初始化控制台日志记录器
-        
+
         Args:
             report_id: 报告ID，用于确定日志文件路径
         """
@@ -325,16 +412,16 @@ class ReportConsoleLogger:
         self._ensure_log_file()
         self._file_handler = None
         self._setup_file_handler()
-    
+
     def _ensure_log_file(self):
         """确保日志文件所在目录存在"""
         log_dir = os.path.dirname(self.log_file_path)
         os.makedirs(log_dir, exist_ok=True)
-    
+
     def _setup_file_handler(self):
         """设置文件处理器，将日志同时写入文件"""
         import logging
-        
+
         # 创建文件处理器
         self._file_handler = logging.FileHandler(
             self.log_file_path,
@@ -342,44 +429,44 @@ class ReportConsoleLogger:
             encoding='utf-8'
         )
         self._file_handler.setLevel(logging.INFO)
-        
+
         # 使用与控制台相同的简洁格式
         formatter = logging.Formatter(
             '[%(asctime)s] %(levelname)s: %(message)s',
             datefmt='%H:%M:%S'
         )
         self._file_handler.setFormatter(formatter)
-        
+
         # 添加到 report_agent 相关的 logger
         loggers_to_attach = [
             'mirofish.report_agent',
             'mirofish.zep_tools',
         ]
-        
+
         for logger_name in loggers_to_attach:
             target_logger = logging.getLogger(logger_name)
             # 避免重复添加
             if self._file_handler not in target_logger.handlers:
                 target_logger.addHandler(self._file_handler)
-    
+
     def close(self):
         """关闭文件处理器并从 logger 中移除"""
         import logging
-        
+
         if self._file_handler:
             loggers_to_detach = [
                 'mirofish.report_agent',
                 'mirofish.zep_tools',
             ]
-            
+
             for logger_name in loggers_to_detach:
                 target_logger = logging.getLogger(logger_name)
                 if self._file_handler in target_logger.handlers:
                     target_logger.removeHandler(self._file_handler)
-            
+
             self._file_handler.close()
             self._file_handler = None
-    
+
     def __del__(self):
         """析构时确保关闭文件处理器"""
         self.close()
@@ -420,14 +507,14 @@ class ReportOutline:
     title: str
     summary: str
     sections: List[ReportSection]
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "title": self.title,
             "summary": self.summary,
             "sections": [s.to_dict() for s in self.sections]
         }
-    
+
     def to_markdown(self) -> str:
         """转换为Markdown格式"""
         md = f"# {self.title}\n\n"
@@ -450,7 +537,7 @@ class Report:
     created_at: str = ""
     completed_at: str = ""
     error: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "report_id": self.report_id,
@@ -870,18 +957,18 @@ class ReportAgent:
     2. 生成阶段：逐章节生成内容，每章节可多次调用工具获取信息
     3. 反思阶段：检查内容完整性和准确性
     """
-    
+
     # 最大工具调用次数（每个章节）
     MAX_TOOL_CALLS_PER_SECTION = 5
-    
+
     # 最大反思轮数
     MAX_REFLECTION_ROUNDS = 3
-    
+
     # 对话中的最大工具调用次数
     MAX_TOOL_CALLS_PER_CHAT = 2
-    
+
     def __init__(
-        self, 
+        self,
         graph_id: str,
         simulation_id: str,
         simulation_requirement: str,
@@ -890,7 +977,7 @@ class ReportAgent:
     ):
         """
         初始化Report Agent
-        
+
         Args:
             graph_id: 图谱ID
             simulation_id: 模拟ID
@@ -901,20 +988,20 @@ class ReportAgent:
         self.graph_id = graph_id
         self.simulation_id = simulation_id
         self.simulation_requirement = simulation_requirement
-        
+
         self.llm = llm_client or LLMClient()
         self.zep_tools = zep_tools or ZepToolsService()
-        
+
         # 工具定义
         self.tools = self._define_tools()
-        
+
         # 日志记录器（在 generate_report 中初始化）
         self.report_logger: Optional[ReportLogger] = None
         # 控制台日志记录器（在 generate_report 中初始化）
         self.console_logger: Optional[ReportConsoleLogger] = None
-        
+
         logger.info(f"ReportAgent 初始化完成: graph_id={graph_id}, simulation_id={simulation_id}")
-    
+
     def _define_tools(self) -> Dict[str, Dict[str, Any]]:
         """定义可用工具"""
         return {
@@ -951,21 +1038,21 @@ class ReportAgent:
                 }
             }
         }
-    
+
     def _execute_tool(self, tool_name: str, parameters: Dict[str, Any], report_context: str = "") -> str:
         """
         执行工具调用
-        
+
         Args:
             tool_name: 工具名称
             parameters: 工具参数
             report_context: 报告上下文（用于InsightForge）
-            
+
         Returns:
             工具执行结果（文本格式）
         """
         logger.info(f"执行工具: {tool_name}, 参数: {parameters}")
-        
+
         try:
             if tool_name == "insight_forge":
                 query = parameters.get("query", "")
@@ -977,7 +1064,7 @@ class ReportAgent:
                     report_context=ctx
                 )
                 return result.to_text()
-            
+
             elif tool_name == "panorama_search":
                 # 广度搜索 - 获取全貌
                 query = parameters.get("query", "")
@@ -990,7 +1077,7 @@ class ReportAgent:
                     include_expired=include_expired
                 )
                 return result.to_text()
-            
+
             elif tool_name == "quick_search":
                 # 简单搜索 - 快速检索
                 query = parameters.get("query", "")
@@ -1003,7 +1090,7 @@ class ReportAgent:
                     limit=limit
                 )
                 return result.to_text()
-            
+
             elif tool_name == "interview_agents":
                 # 深度采访 - 调用真实的OASIS采访API获取模拟Agent的回答（双平台）
                 interview_topic = parameters.get("interview_topic", parameters.get("query", ""))
@@ -1018,18 +1105,18 @@ class ReportAgent:
                     max_agents=max_agents
                 )
                 return result.to_text()
-            
+
             # ========== 向后兼容的旧工具（内部重定向到新工具） ==========
-            
+
             elif tool_name == "search_graph":
                 # 重定向到 quick_search
                 logger.info("search_graph 已重定向到 quick_search")
                 return self._execute_tool("quick_search", parameters, report_context)
-            
+
             elif tool_name == "get_graph_statistics":
                 result = self.zep_tools.get_graph_statistics(self.graph_id)
                 return json.dumps(result, ensure_ascii=False, indent=2)
-            
+
             elif tool_name == "get_entity_summary":
                 entity_name = parameters.get("entity_name", "")
                 result = self.zep_tools.get_entity_summary(
@@ -1037,13 +1124,13 @@ class ReportAgent:
                     entity_name=entity_name
                 )
                 return json.dumps(result, ensure_ascii=False, indent=2)
-            
+
             elif tool_name == "get_simulation_context":
                 # 重定向到 insight_forge，因为它更强大
                 logger.info("get_simulation_context 已重定向到 insight_forge")
                 query = parameters.get("query", self.simulation_requirement)
                 return self._execute_tool("insight_forge", {"query": query}, report_context)
-            
+
             elif tool_name == "get_entities_by_type":
                 entity_type = parameters.get("entity_type", "")
                 nodes = self.zep_tools.get_entities_by_type(
@@ -1052,14 +1139,14 @@ class ReportAgent:
                 )
                 result = [n.to_dict() for n in nodes]
                 return json.dumps(result, ensure_ascii=False, indent=2)
-            
+
             else:
                 return f"未知工具: {tool_name}。请使用以下工具之一: insight_forge, panorama_search, quick_search"
-                
+
         except Exception as e:
             logger.error(f"工具执行失败: {tool_name}, 错误: {str(e)}")
             return f"工具执行失败: {str(e)}"
-    
+
     # 合法的工具名称集合，用于裸 JSON 兜底解析时校验
     VALID_TOOL_NAMES = {"insight_forge", "panorama_search", "quick_search", "interview_agents"}
 
@@ -1122,7 +1209,7 @@ class ReportAgent:
                 data["parameters"] = data.pop("params")
             return True
         return False
-    
+
     def _get_tools_description(self) -> str:
         """生成工具描述文本"""
         desc_parts = ["可用工具："]
@@ -1132,36 +1219,36 @@ class ReportAgent:
             if params_desc:
                 desc_parts.append(f"  参数: {params_desc}")
         return "\n".join(desc_parts)
-    
+
     def plan_outline(
-        self, 
+        self,
         progress_callback: Optional[Callable] = None
     ) -> ReportOutline:
         """
         规划报告大纲
-        
+
         使用LLM分析模拟需求，规划报告的目录结构
-        
+
         Args:
             progress_callback: 进度回调函数
-            
+
         Returns:
             ReportOutline: 报告大纲
         """
         logger.info("开始规划报告大纲...")
-        
+
         if progress_callback:
             progress_callback("planning", 0, "正在分析模拟需求...")
-        
+
         # 首先获取模拟上下文
         context = self.zep_tools.get_simulation_context(
             graph_id=self.graph_id,
             simulation_requirement=self.simulation_requirement
         )
-        
+
         if progress_callback:
             progress_callback("planning", 30, "正在生成报告大纲...")
-        
+
         system_prompt = PLAN_SYSTEM_PROMPT
         user_prompt = PLAN_USER_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
@@ -1180,10 +1267,10 @@ class ReportAgent:
                 ],
                 temperature=0.3
             )
-            
+
             if progress_callback:
                 progress_callback("planning", 80, "正在解析大纲结构...")
-            
+
             # 解析大纲
             sections = []
             for section_data in response.get("sections", []):
@@ -1191,19 +1278,19 @@ class ReportAgent:
                     title=section_data.get("title", ""),
                     content=""
                 ))
-            
+
             outline = ReportOutline(
                 title=response.get("title", "模拟分析报告"),
                 summary=response.get("summary", ""),
                 sections=sections
             )
-            
+
             if progress_callback:
                 progress_callback("planning", 100, "大纲规划完成")
-            
+
             logger.info(f"大纲规划完成: {len(sections)} 个章节")
             return outline
-            
+
         except Exception as e:
             logger.error(f"大纲规划失败: {str(e)}")
             # 返回默认大纲（3个章节，作为fallback）
@@ -1216,9 +1303,9 @@ class ReportAgent:
                     ReportSection(title="趋势展望与风险提示")
                 ]
             )
-    
+
     def _generate_section_react(
-        self, 
+        self,
         section: ReportSection,
         outline: ReportOutline,
         previous_sections: List[str],
@@ -1227,30 +1314,30 @@ class ReportAgent:
     ) -> str:
         """
         使用ReACT模式生成单个章节内容
-        
+
         ReACT循环：
         1. Thought（思考）- 分析需要什么信息
         2. Action（行动）- 调用工具获取信息
         3. Observation（观察）- 分析工具返回结果
         4. 重复直到信息足够或达到最大次数
         5. Final Answer（最终回答）- 生成章节内容
-        
+
         Args:
             section: 要生成的章节
             outline: 完整大纲
             previous_sections: 之前章节的内容（用于保持连贯性）
             progress_callback: 进度回调
             section_index: 章节索引（用于日志记录）
-            
+
         Returns:
             章节内容（Markdown格式）
         """
         logger.info(f"ReACT生成章节: {section.title}")
-        
+
         # 记录章节开始日志
         if self.report_logger:
             self.report_logger.log_section_start(section.title, section_index)
-        
+
         system_prompt = SECTION_SYSTEM_PROMPT_TEMPLATE.format(
             report_title=outline.title,
             report_summary=outline.summary,
@@ -1269,7 +1356,7 @@ class ReportAgent:
             previous_content = "\n\n---\n\n".join(previous_parts)
         else:
             previous_content = "（这是第一个章节）"
-        
+
         user_prompt = SECTION_USER_PROMPT_TEMPLATE.format(
             previous_content=previous_content,
             section_title=section.title,
@@ -1279,7 +1366,7 @@ class ReportAgent:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        
+
         # ReACT循环
         tool_calls_count = 0
         max_iterations = 5  # 最大迭代轮数
@@ -1290,15 +1377,15 @@ class ReportAgent:
 
         # 报告上下文，用于InsightForge的子问题生成
         report_context = f"章节标题: {section.title}\n模拟需求: {self.simulation_requirement}"
-        
+
         for iteration in range(max_iterations):
             if progress_callback:
                 progress_callback(
-                    "generating", 
+                    "generating",
                     int((iteration / max_iterations) * 100),
                     f"深度检索与撰写中 ({tool_calls_count}/{self.MAX_TOOL_CALLS_PER_SECTION})"
                 )
-            
+
             # 调用LLM
             response = self.llm.chat(
                 messages=messages,
@@ -1498,11 +1585,11 @@ class ReportAgent:
                     tool_calls_count=tool_calls_count
                 )
             return final_answer
-        
+
         # 达到最大迭代次数，强制生成内容
         logger.warning(f"章节 {section.title} 达到最大迭代次数，强制生成")
         messages.append({"role": "user", "content": REACT_FORCE_FINAL_MSG})
-        
+
         response = self.llm.chat(
             messages=messages,
             temperature=0.5,
@@ -1517,7 +1604,7 @@ class ReportAgent:
             final_answer = response.split("Final Answer:")[-1].strip()
         else:
             final_answer = response
-        
+
         # 记录章节内容生成完成日志
         if self.report_logger:
             self.report_logger.log_section_content(
@@ -1526,17 +1613,17 @@ class ReportAgent:
                 content=final_answer,
                 tool_calls_count=tool_calls_count
             )
-        
+
         return final_answer
-    
+
     def generate_report(
-        self, 
+        self,
         progress_callback: Optional[Callable[[str, int, str], None]] = None,
         report_id: Optional[str] = None
     ) -> Report:
         """
         生成完整报告（分章节实时输出）
-        
+
         每个章节生成完成后立即保存到文件夹，不需要等待整个报告完成。
         文件结构：
         reports/{report_id}/
@@ -1547,21 +1634,21 @@ class ReportAgent:
             section_02.md   - 第2章节
             ...
             full_report.md  - 完整报告
-        
+
         Args:
             progress_callback: 进度回调函数 (stage, progress, message)
             report_id: 报告ID（可选，如果不传则自动生成）
-            
+
         Returns:
             Report: 完整报告
         """
         import uuid
-        
+
         # 如果没有传入 report_id，则自动生成
         if not report_id:
             report_id = f"report_{uuid.uuid4().hex[:12]}"
         start_time = datetime.now()
-        
+
         report = Report(
             report_id=report_id,
             simulation_id=self.simulation_id,
@@ -1570,14 +1657,14 @@ class ReportAgent:
             status=ReportStatus.PENDING,
             created_at=datetime.now().isoformat()
         )
-        
+
         # 已完成的章节标题列表（用于进度追踪）
         completed_section_titles = []
-        
+
         try:
             # 初始化：创建报告文件夹并保存初始状态
             ReportManager._ensure_report_folder(report_id)
-            
+
             # 初始化日志记录器（结构化日志 agent_log.jsonl）
             self.report_logger = ReportLogger(report_id)
             self.report_logger.log_start(
@@ -1585,38 +1672,38 @@ class ReportAgent:
                 graph_id=self.graph_id,
                 simulation_requirement=self.simulation_requirement
             )
-            
+
             # 初始化控制台日志记录器（console_log.txt）
             self.console_logger = ReportConsoleLogger(report_id)
-            
+
             ReportManager.update_progress(
                 report_id, "pending", 0, "初始化报告...",
                 completed_sections=[]
             )
             ReportManager.save_report(report)
-            
+
             # 阶段1: 规划大纲
             report.status = ReportStatus.PLANNING
             ReportManager.update_progress(
                 report_id, "planning", 5, "开始规划报告大纲...",
                 completed_sections=[]
             )
-            
+
             # 记录规划开始日志
             self.report_logger.log_planning_start()
-            
+
             if progress_callback:
                 progress_callback("planning", 0, "开始规划报告大纲...")
-            
+
             outline = self.plan_outline(
-                progress_callback=lambda stage, prog, msg: 
+                progress_callback=lambda stage, prog, msg:
                     progress_callback(stage, prog // 5, msg) if progress_callback else None
             )
             report.outline = outline
-            
+
             # 记录规划完成日志
             self.report_logger.log_planning_complete(outline.to_dict())
-            
+
             # 保存大纲到文件
             ReportManager.save_outline(report_id, outline)
             ReportManager.update_progress(
@@ -1624,19 +1711,19 @@ class ReportAgent:
                 completed_sections=[]
             )
             ReportManager.save_report(report)
-            
+
             logger.info(f"大纲已保存到文件: {report_id}/outline.json")
-            
+
             # 阶段2: 逐章节生成（分章节保存）
             report.status = ReportStatus.GENERATING
-            
+
             total_sections = len(outline.sections)
             generated_sections = []  # 保存内容用于上下文
-            
+
             for i, section in enumerate(outline.sections):
                 section_num = i + 1
                 base_progress = 20 + int((i / total_sections) * 70)
-                
+
                 # 更新进度
                 ReportManager.update_progress(
                     report_id, "generating", base_progress,
@@ -1644,14 +1731,14 @@ class ReportAgent:
                     current_section=section.title,
                     completed_sections=completed_section_titles
                 )
-                
+
                 if progress_callback:
                     progress_callback(
-                        "generating", 
-                        base_progress, 
+                        "generating",
+                        base_progress,
                         f"正在生成章节: {section.title} ({section_num}/{total_sections})"
                     )
-                
+
                 # 生成主章节内容
                 section_content = self._generate_section_react(
                     section=section,
@@ -1659,13 +1746,13 @@ class ReportAgent:
                     previous_sections=generated_sections,
                     progress_callback=lambda stage, prog, msg:
                         progress_callback(
-                            stage, 
+                            stage,
                             base_progress + int(prog * 0.7 / total_sections),
                             msg
                         ) if progress_callback else None,
                     section_index=section_num
                 )
-                
+
                 section.content = section_content
                 generated_sections.append(f"## {section.title}\n\n{section_content}")
 
@@ -1684,68 +1771,68 @@ class ReportAgent:
                     )
 
                 logger.info(f"章节已保存: {report_id}/section_{section_num:02d}.md")
-                
+
                 # 更新进度
                 ReportManager.update_progress(
-                    report_id, "generating", 
+                    report_id, "generating",
                     base_progress + int(70 / total_sections),
                     f"章节 {section.title} 已完成",
                     current_section=None,
                     completed_sections=completed_section_titles
                 )
-            
+
             # 阶段3: 组装完整报告
             if progress_callback:
                 progress_callback("generating", 95, "正在组装完整报告...")
-            
+
             ReportManager.update_progress(
                 report_id, "generating", 95, "正在组装完整报告...",
                 completed_sections=completed_section_titles
             )
-            
+
             # 使用ReportManager组装完整报告
             report.markdown_content = ReportManager.assemble_full_report(report_id, outline)
             report.status = ReportStatus.COMPLETED
             report.completed_at = datetime.now().isoformat()
-            
+
             # 计算总耗时
             total_time_seconds = (datetime.now() - start_time).total_seconds()
-            
+
             # 记录报告完成日志
             if self.report_logger:
                 self.report_logger.log_report_complete(
                     total_sections=total_sections,
                     total_time_seconds=total_time_seconds
                 )
-            
+
             # 保存最终报告
             ReportManager.save_report(report)
             ReportManager.update_progress(
                 report_id, "completed", 100, "报告生成完成",
                 completed_sections=completed_section_titles
             )
-            
+
             if progress_callback:
                 progress_callback("completed", 100, "报告生成完成")
-            
+
             logger.info(f"报告生成完成: {report_id}")
-            
+
             # 关闭控制台日志记录器
             if self.console_logger:
                 self.console_logger.close()
                 self.console_logger = None
-            
+
             return report
-            
+
         except Exception as e:
             logger.error(f"报告生成失败: {str(e)}")
             report.status = ReportStatus.FAILED
             report.error = str(e)
-            
+
             # 记录错误日志
             if self.report_logger:
                 self.report_logger.log_error(str(e), "failed")
-            
+
             # 保存失败状态
             try:
                 ReportManager.save_report(report)
@@ -1755,28 +1842,28 @@ class ReportAgent:
                 )
             except Exception:
                 pass  # 忽略保存失败的错误
-            
+
             # 关闭控制台日志记录器
             if self.console_logger:
                 self.console_logger.close()
                 self.console_logger = None
-            
+
             return report
-    
+
     def chat(
-        self, 
+        self,
         message: str,
         chat_history: List[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """
         与Report Agent对话
-        
+
         在对话中Agent可以自主调用检索工具来回答问题
-        
+
         Args:
             message: 用户消息
             chat_history: 对话历史
-            
+
         Returns:
             {
                 "response": "Agent回复",
@@ -1785,9 +1872,9 @@ class ReportAgent:
             }
         """
         logger.info(f"Report Agent对话: {message[:50]}...")
-        
+
         chat_history = chat_history or []
-        
+
         # 获取已生成的报告内容
         report_content = ""
         try:
@@ -1799,7 +1886,7 @@ class ReportAgent:
                     report_content += "\n\n... [报告内容已截断] ..."
         except Exception as e:
             logger.warning(f"获取报告内容失败: {e}")
-        
+
         system_prompt = CHAT_SYSTEM_PROMPT_TEMPLATE.format(
             simulation_requirement=self.simulation_requirement,
             report_content=report_content if report_content else "（暂无报告）",
@@ -1808,41 +1895,41 @@ class ReportAgent:
 
         # 构建消息
         messages = [{"role": "system", "content": system_prompt}]
-        
+
         # 添加历史对话
         for h in chat_history[-10:]:  # 限制历史长度
             messages.append(h)
-        
+
         # 添加用户消息
         messages.append({
-            "role": "user", 
+            "role": "user",
             "content": message
         })
-        
+
         # ReACT循环（简化版）
         tool_calls_made = []
         max_iterations = 2  # 减少迭代轮数
-        
+
         for iteration in range(max_iterations):
             response = self.llm.chat(
                 messages=messages,
                 temperature=0.5
             )
-            
+
             # 解析工具调用
             tool_calls = self._parse_tool_calls(response)
-            
+
             if not tool_calls:
                 # 没有工具调用，直接返回响应
                 clean_response = re.sub(r'<tool_call>.*?</tool_call>', '', response, flags=re.DOTALL)
                 clean_response = re.sub(r'\[TOOL_CALL\].*?\)', '', clean_response)
-                
+
                 return {
                     "response": clean_response.strip(),
                     "tool_calls": tool_calls_made,
                     "sources": [tc.get("parameters", {}).get("query", "") for tc in tool_calls_made]
                 }
-            
+
             # 执行工具调用（限制数量）
             tool_results = []
             for call in tool_calls[:1]:  # 每轮最多执行1次工具调用
@@ -1854,7 +1941,7 @@ class ReportAgent:
                     "result": result[:1500]  # 限制结果长度
                 })
                 tool_calls_made.append(call)
-            
+
             # 将结果添加到消息
             messages.append({"role": "assistant", "content": response})
             observation = "\n".join([f"[{r['tool']}结果]\n{r['result']}" for r in tool_results])
@@ -1862,30 +1949,238 @@ class ReportAgent:
                 "role": "user",
                 "content": observation + CHAT_OBSERVATION_SUFFIX
             })
-        
+
         # 达到最大迭代，获取最终响应
         final_response = self.llm.chat(
             messages=messages,
             temperature=0.5
         )
-        
+
         # 清理响应
         clean_response = re.sub(r'<tool_call>.*?</tool_call>', '', final_response, flags=re.DOTALL)
         clean_response = re.sub(r'\[TOOL_CALL\].*?\)', '', clean_response)
-        
+
         return {
             "response": clean_response.strip(),
             "tool_calls": tool_calls_made,
             "sources": [tc.get("parameters", {}).get("query", "") for tc in tool_calls_made]
         }
 
+    def generate_structured_report(
+        self,
+        agent_predictions: List[Dict[str, Any]],
+        topic_tags: Optional[List[str]] = None
+    ) -> StructuredInvestmentReport:
+        """
+        Generate a structured investment-grade report from agent predictions.
+
+        This method produces a JSON-based structured output that includes:
+        - Scenario analysis (Bull/Bear/Base cases)
+        - Weighted consensus based on agent track records
+        - Full agent attribution
+
+        Args:
+            agent_predictions: List of agent prediction dictionaries with keys:
+                - agent_id: str
+                - persona: str
+                - predicted_outcome: str (e.g., "bullish", "bearish", "neutral")
+                - confidence: float (0-1)
+                - prediction: str (full text)
+            topic_tags: Optional topic tags for weight calculation
+
+        Returns:
+            StructuredInvestmentReport with full scenario and attribution data
+        """
+        from .agent_ledger import AgentLedger
+
+        logger.info(f"Generating structured investment report for {len(agent_predictions)} agents")
+
+        ledger = AgentLedger()
+        generated_at = datetime.now().isoformat()
+
+        # Get weighted agents from ledger
+        topic = topic_tags[0] if topic_tags else None
+        agent_weights = ledger.get_weighted_agents(topic=topic)
+
+        # Process predictions and calculate scenario probabilities
+        outcome_counts: Dict[str, int] = {}
+        outcome_weights: Dict[str, float] = {}
+        outcome_agents: Dict[str, List[str]] = {}
+        attributions: List[AgentAttribution] = []
+
+        total_weight = 0.0
+
+        for pred in agent_predictions:
+            agent_id = pred.get("agent_id", "unknown")
+            persona = pred.get("persona", "")
+            predicted_outcome = pred.get("predicted_outcome", "neutral").lower()
+            confidence = pred.get("confidence", 0.5)
+
+            # Get agent stats from ledger
+            agent_record = ledger.get_agent_stats(agent_id)
+            if agent_record:
+                historical_hit_rate = agent_record.overall_stats.hit_rate
+                sim_count = agent_record.overall_stats.total_simulations
+            else:
+                historical_hit_rate = 0.5  # Default for new agents
+                sim_count = 0
+
+            # Calculate weight for this agent
+            if agent_id in agent_weights:
+                weight = agent_weights[agent_id]
+            elif sim_count < 5:
+                # New agent: reduced weight
+                weight = 0.5 / max(len(agent_predictions), 1)
+            else:
+                weight = 1.0 / max(len(agent_predictions), 1)
+
+            # Record prediction in ledger
+            ledger.record_prediction(
+                agent_id=agent_id,
+                persona=persona,
+                simulation_id=self.simulation_id,
+                question=self.simulation_requirement,
+                prediction=pred.get("prediction", ""),
+                confidence=confidence,
+                predicted_outcome=predicted_outcome,
+                topic_tags=topic_tags or []
+            )
+
+            # Aggregate by outcome
+            outcome_counts[predicted_outcome] = outcome_counts.get(predicted_outcome, 0) + 1
+            outcome_weights[predicted_outcome] = outcome_weights.get(predicted_outcome, 0.0) + weight * confidence
+            if predicted_outcome not in outcome_agents:
+                outcome_agents[predicted_outcome] = []
+            outcome_agents[predicted_outcome].append(agent_id)
+
+            total_weight += weight * confidence
+
+            # Create attribution record
+            attributions.append(AgentAttribution(
+                agent_id=agent_id,
+                persona=persona,
+                predicted_outcome=predicted_outcome,
+                confidence=confidence,
+                historical_hit_rate=round(historical_hit_rate, 4),
+                weight_applied=round(weight, 4),
+                weighted_contribution=f"{predicted_outcome} * {weight:.4f}"
+            ))
+
+        # Calculate scenario probabilities
+        scenarios: List[ScenarioData] = []
+        total_agents = len(agent_predictions)
+
+        # Map outcomes to scenario labels
+        scenario_labels = {
+            "bullish": "Bull Case",
+            "bearish": "Bear Case",
+            "neutral": "Base Case"
+        }
+
+        for outcome, count in outcome_counts.items():
+            if total_weight > 0:
+                probability = outcome_weights.get(outcome, 0.0) / total_weight
+            else:
+                probability = count / total_agents if total_agents > 0 else 0.0
+
+            label = scenario_labels.get(outcome, f"{outcome.title()} Case")
+
+            # Get top contributing agents (by weight)
+            top_agents = sorted(
+                [a for a in attributions if a.predicted_outcome == outcome],
+                key=lambda x: x.weight_applied * x.confidence,
+                reverse=True
+            )[:3]
+
+            scenarios.append(ScenarioData(
+                label=label,
+                probability=round(probability, 4),
+                description=f"Predicted by {count} agents ({count/total_agents*100:.1f}% of total)",
+                key_triggers=[],  # Could be populated from agent predictions if structured
+                agent_convergence={
+                    "agent_count": count,
+                    "pct_of_total": round(count / total_agents, 4) if total_agents > 0 else 0,
+                    "top_contributing_agents": [a.agent_id for a in top_agents]
+                },
+                implied_outcome=outcome
+            ))
+
+        # Sort scenarios by probability
+        scenarios.sort(key=lambda x: x.probability, reverse=True)
+
+        # Calculate weighted consensus
+        most_likely = scenarios[0] if scenarios else None
+
+        # Calculate disagreement index (entropy-based)
+        import math
+        if scenarios:
+            entropy = -sum(
+                s.probability * math.log(s.probability + 1e-10)
+                for s in scenarios
+                if s.probability > 0
+            )
+            max_entropy = math.log(len(scenarios) + 1e-10)
+            disagreement_index = entropy / max_entropy if max_entropy > 0 else 0
+        else:
+            disagreement_index = 0.0
+
+        # Find high conviction agents (top 10% by weight * confidence)
+        sorted_attributions = sorted(
+            attributions,
+            key=lambda x: x.weight_applied * x.confidence,
+            reverse=True
+        )
+        high_conviction_count = max(1, len(attributions) // 10)
+        high_conviction_agents = [a.agent_id for a in sorted_attributions[:high_conviction_count]]
+
+        # Find contrarian signals (high-weight agents predicting minority outcome)
+        contrarian_signals = []
+        if most_likely and len(scenarios) > 1:
+            majority_outcome = most_likely.implied_outcome
+            for attr in sorted_attributions[:high_conviction_count * 2]:
+                if attr.predicted_outcome != majority_outcome:
+                    contrarian_signals.append(
+                        f"{attr.agent_id} ({attr.persona}): {attr.predicted_outcome}"
+                    )
+
+        weighted_consensus = WeightedConsensus(
+            most_likely_scenario=most_likely.label if most_likely else "Unknown",
+            confidence=most_likely.probability if most_likely else 0.0,
+            disagreement_index=round(disagreement_index, 4),
+            high_conviction_agents=high_conviction_agents,
+            contrarian_signals=contrarian_signals[:5]  # Limit to top 5
+        )
+
+        methodology_note = (
+            "Probabilities derived from weighted agent convergence. "
+            "Weights based on historical hit rate (alpha_score) from agent ledger. "
+            "New agents weighted at 0.5x until 5+ simulations completed."
+        )
+
+        report = StructuredInvestmentReport(
+            simulation_id=self.simulation_id,
+            question=self.simulation_requirement,
+            generated_at=generated_at,
+            scenarios=scenarios,
+            weighted_consensus=weighted_consensus,
+            agent_attribution=attributions,
+            methodology_note=methodology_note
+        )
+
+        logger.info(
+            f"Structured report generated: {len(scenarios)} scenarios, "
+            f"most likely={weighted_consensus.most_likely_scenario} ({weighted_consensus.confidence:.2%})"
+        )
+
+        return report
+
 
 class ReportManager:
     """
     报告管理器
-    
+
     负责报告的持久化存储和检索
-    
+
     文件结构（分章节输出）：
     reports/
       {report_id}/
@@ -1897,74 +2192,74 @@ class ReportManager:
         ...
         full_report.md     - 完整报告
     """
-    
+
     # 报告存储目录
     REPORTS_DIR = os.path.join(Config.UPLOAD_FOLDER, 'reports')
-    
+
     @classmethod
     def _ensure_reports_dir(cls):
         """确保报告根目录存在"""
         os.makedirs(cls.REPORTS_DIR, exist_ok=True)
-    
+
     @classmethod
     def _get_report_folder(cls, report_id: str) -> str:
         """获取报告文件夹路径"""
         return os.path.join(cls.REPORTS_DIR, report_id)
-    
+
     @classmethod
     def _ensure_report_folder(cls, report_id: str) -> str:
         """确保报告文件夹存在并返回路径"""
         folder = cls._get_report_folder(report_id)
         os.makedirs(folder, exist_ok=True)
         return folder
-    
+
     @classmethod
     def _get_report_path(cls, report_id: str) -> str:
         """获取报告元信息文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "meta.json")
-    
+
     @classmethod
     def _get_report_markdown_path(cls, report_id: str) -> str:
         """获取完整报告Markdown文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "full_report.md")
-    
+
     @classmethod
     def _get_outline_path(cls, report_id: str) -> str:
         """获取大纲文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "outline.json")
-    
+
     @classmethod
     def _get_progress_path(cls, report_id: str) -> str:
         """获取进度文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "progress.json")
-    
+
     @classmethod
     def _get_section_path(cls, report_id: str, section_index: int) -> str:
         """获取章节Markdown文件路径"""
         return os.path.join(cls._get_report_folder(report_id), f"section_{section_index:02d}.md")
-    
+
     @classmethod
     def _get_agent_log_path(cls, report_id: str) -> str:
         """获取 Agent 日志文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "agent_log.jsonl")
-    
+
     @classmethod
     def _get_console_log_path(cls, report_id: str) -> str:
         """获取控制台日志文件路径"""
         return os.path.join(cls._get_report_folder(report_id), "console_log.txt")
-    
+
     @classmethod
     def get_console_log(cls, report_id: str, from_line: int = 0) -> Dict[str, Any]:
         """
         获取控制台日志内容
-        
+
         这是报告生成过程中的控制台输出日志（INFO、WARNING等），
         与 agent_log.jsonl 的结构化日志不同。
-        
+
         Args:
             report_id: 报告ID
             from_line: 从第几行开始读取（用于增量获取，0 表示从头开始）
-            
+
         Returns:
             {
                 "logs": [日志行列表],
@@ -1974,7 +2269,7 @@ class ReportManager:
             }
         """
         log_path = cls._get_console_log_path(report_id)
-        
+
         if not os.path.exists(log_path):
             return {
                 "logs": [],
@@ -1982,47 +2277,47 @@ class ReportManager:
                 "from_line": 0,
                 "has_more": False
             }
-        
+
         logs = []
         total_lines = 0
-        
+
         with open(log_path, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 total_lines = i + 1
                 if i >= from_line:
                     # 保留原始日志行，去掉末尾换行符
                     logs.append(line.rstrip('\n\r'))
-        
+
         return {
             "logs": logs,
             "total_lines": total_lines,
             "from_line": from_line,
             "has_more": False  # 已读取到末尾
         }
-    
+
     @classmethod
     def get_console_log_stream(cls, report_id: str) -> List[str]:
         """
         获取完整的控制台日志（一次性获取全部）
-        
+
         Args:
             report_id: 报告ID
-            
+
         Returns:
             日志行列表
         """
         result = cls.get_console_log(report_id, from_line=0)
         return result["logs"]
-    
+
     @classmethod
     def get_agent_log(cls, report_id: str, from_line: int = 0) -> Dict[str, Any]:
         """
         获取 Agent 日志内容
-        
+
         Args:
             report_id: 报告ID
             from_line: 从第几行开始读取（用于增量获取，0 表示从头开始）
-            
+
         Returns:
             {
                 "logs": [日志条目列表],
@@ -2032,7 +2327,7 @@ class ReportManager:
             }
         """
         log_path = cls._get_agent_log_path(report_id)
-        
+
         if not os.path.exists(log_path):
             return {
                 "logs": [],
@@ -2040,10 +2335,10 @@ class ReportManager:
                 "from_line": 0,
                 "has_more": False
             }
-        
+
         logs = []
         total_lines = 0
-        
+
         with open(log_path, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 total_lines = i + 1
@@ -2054,42 +2349,42 @@ class ReportManager:
                     except json.JSONDecodeError:
                         # 跳过解析失败的行
                         continue
-        
+
         return {
             "logs": logs,
             "total_lines": total_lines,
             "from_line": from_line,
             "has_more": False  # 已读取到末尾
         }
-    
+
     @classmethod
     def get_agent_log_stream(cls, report_id: str) -> List[Dict[str, Any]]:
         """
         获取完整的 Agent 日志（用于一次性获取全部）
-        
+
         Args:
             report_id: 报告ID
-            
+
         Returns:
             日志条目列表
         """
         result = cls.get_agent_log(report_id, from_line=0)
         return result["logs"]
-    
+
     @classmethod
     def save_outline(cls, report_id: str, outline: ReportOutline) -> None:
         """
         保存报告大纲
-        
+
         在规划阶段完成后立即调用
         """
         cls._ensure_report_folder(report_id)
-        
+
         with open(cls._get_outline_path(report_id), 'w', encoding='utf-8') as f:
             json.dump(outline.to_dict(), f, ensure_ascii=False, indent=2)
-        
+
         logger.info(f"大纲已保存: {report_id}")
-    
+
     @classmethod
     def save_section(
         cls,
@@ -2126,92 +2421,92 @@ class ReportManager:
 
         logger.info(f"章节已保存: {report_id}/{file_suffix}")
         return file_path
-    
+
     @classmethod
     def _clean_section_content(cls, content: str, section_title: str) -> str:
         """
         清理章节内容
-        
+
         1. 移除内容开头与章节标题重复的Markdown标题行
         2. 将所有 ### 及以下级别的标题转换为粗体文本
-        
+
         Args:
             content: 原始内容
             section_title: 章节标题
-            
+
         Returns:
             清理后的内容
         """
         import re
-        
+
         if not content:
             return content
-        
+
         content = content.strip()
         lines = content.split('\n')
         cleaned_lines = []
         skip_next_empty = False
-        
+
         for i, line in enumerate(lines):
             stripped = line.strip()
-            
+
             # 检查是否是Markdown标题行
             heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
-            
+
             if heading_match:
                 level = len(heading_match.group(1))
                 title_text = heading_match.group(2).strip()
-                
+
                 # 检查是否是与章节标题重复的标题（跳过前5行内的重复）
                 if i < 5:
                     if title_text == section_title or title_text.replace(' ', '') == section_title.replace(' ', ''):
                         skip_next_empty = True
                         continue
-                
+
                 # 将所有级别的标题（#, ##, ###, ####等）转换为粗体
                 # 因为章节标题由系统添加，内容中不应有任何标题
                 cleaned_lines.append(f"**{title_text}**")
                 cleaned_lines.append("")  # 添加空行
                 continue
-            
+
             # 如果上一行是被跳过的标题，且当前行为空，也跳过
             if skip_next_empty and stripped == '':
                 skip_next_empty = False
                 continue
-            
+
             skip_next_empty = False
             cleaned_lines.append(line)
-        
+
         # 移除开头的空行
         while cleaned_lines and cleaned_lines[0].strip() == '':
             cleaned_lines.pop(0)
-        
+
         # 移除开头的分隔线
         while cleaned_lines and cleaned_lines[0].strip() in ['---', '***', '___']:
             cleaned_lines.pop(0)
             # 同时移除分隔线后的空行
             while cleaned_lines and cleaned_lines[0].strip() == '':
                 cleaned_lines.pop(0)
-        
+
         return '\n'.join(cleaned_lines)
-    
+
     @classmethod
     def update_progress(
-        cls, 
-        report_id: str, 
-        status: str, 
-        progress: int, 
+        cls,
+        report_id: str,
+        status: str,
+        progress: int,
         message: str,
         current_section: str = None,
         completed_sections: List[str] = None
     ) -> None:
         """
         更新报告生成进度
-        
+
         前端可以通过读取progress.json获取实时进度
         """
         cls._ensure_report_folder(report_id)
-        
+
         progress_data = {
             "status": status,
             "progress": progress,
@@ -2220,33 +2515,33 @@ class ReportManager:
             "completed_sections": completed_sections or [],
             "updated_at": datetime.now().isoformat()
         }
-        
+
         with open(cls._get_progress_path(report_id), 'w', encoding='utf-8') as f:
             json.dump(progress_data, f, ensure_ascii=False, indent=2)
-    
+
     @classmethod
     def get_progress(cls, report_id: str) -> Optional[Dict[str, Any]]:
         """获取报告生成进度"""
         path = cls._get_progress_path(report_id)
-        
+
         if not os.path.exists(path):
             return None
-        
+
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    
+
     @classmethod
     def get_generated_sections(cls, report_id: str) -> List[Dict[str, Any]]:
         """
         获取已生成的章节列表
-        
+
         返回所有已保存的章节文件信息
         """
         folder = cls._get_report_folder(report_id)
-        
+
         if not os.path.exists(folder):
             return []
-        
+
         sections = []
         for filename in sorted(os.listdir(folder)):
             if filename.startswith('section_') and filename.endswith('.md'):
@@ -2265,76 +2560,76 @@ class ReportManager:
                 })
 
         return sections
-    
+
     @classmethod
     def assemble_full_report(cls, report_id: str, outline: ReportOutline) -> str:
         """
         组装完整报告
-        
+
         从已保存的章节文件组装完整报告，并进行标题清理
         """
         folder = cls._get_report_folder(report_id)
-        
+
         # 构建报告头部
         md_content = f"# {outline.title}\n\n"
         md_content += f"> {outline.summary}\n\n"
         md_content += f"---\n\n"
-        
+
         # 按顺序读取所有章节文件
         sections = cls.get_generated_sections(report_id)
         for section_info in sections:
             md_content += section_info["content"]
-        
+
         # 后处理：清理整个报告的标题问题
         md_content = cls._post_process_report(md_content, outline)
-        
+
         # 保存完整报告
         full_path = cls._get_report_markdown_path(report_id)
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
-        
+
         logger.info(f"完整报告已组装: {report_id}")
         return md_content
-    
+
     @classmethod
     def _post_process_report(cls, content: str, outline: ReportOutline) -> str:
         """
         后处理报告内容
-        
+
         1. 移除重复的标题
         2. 保留报告主标题(#)和章节标题(##)，移除其他级别的标题(###, ####等)
         3. 清理多余的空行和分隔线
-        
+
         Args:
             content: 原始报告内容
             outline: 报告大纲
-            
+
         Returns:
             处理后的内容
         """
         import re
-        
+
         lines = content.split('\n')
         processed_lines = []
         prev_was_heading = False
-        
+
         # 收集大纲中的所有章节标题
         section_titles = set()
         for section in outline.sections:
             section_titles.add(section.title)
-        
+
         i = 0
         while i < len(lines):
             line = lines[i]
             stripped = line.strip()
-            
+
             # 检查是否是标题行
             heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
-            
+
             if heading_match:
                 level = len(heading_match.group(1))
                 title = heading_match.group(2).strip()
-                
+
                 # 检查是否是重复标题（在连续5行内出现相同内容的标题）
                 is_duplicate = False
                 for j in range(max(0, len(processed_lines) - 5), len(processed_lines)):
@@ -2345,19 +2640,19 @@ class ReportManager:
                         if prev_title == title:
                             is_duplicate = True
                             break
-                
+
                 if is_duplicate:
                     # 跳过重复标题及其后的空行
                     i += 1
                     while i < len(lines) and lines[i].strip() == '':
                         i += 1
                     continue
-                
+
                 # 标题层级处理：
                 # - # (level=1) 只保留报告主标题
                 # - ## (level=2) 保留章节标题
                 # - ### 及以下 (level>=3) 转换为粗体文本
-                
+
                 if level == 1:
                     if title == outline.title:
                         # 保留报告主标题
@@ -2387,27 +2682,27 @@ class ReportManager:
                     processed_lines.append(f"**{title}**")
                     processed_lines.append("")
                     prev_was_heading = False
-                
+
                 i += 1
                 continue
-            
+
             elif stripped == '---' and prev_was_heading:
                 # 跳过标题后紧跟的分隔线
                 i += 1
                 continue
-            
+
             elif stripped == '' and prev_was_heading:
                 # 标题后只保留一个空行
                 if processed_lines and processed_lines[-1].strip() != '':
                     processed_lines.append(line)
                 prev_was_heading = False
-            
+
             else:
                 processed_lines.append(line)
                 prev_was_heading = False
-            
+
             i += 1
-        
+
         # 清理连续的多个空行（保留最多2个）
         result_lines = []
         empty_count = 0
@@ -2419,34 +2714,34 @@ class ReportManager:
             else:
                 empty_count = 0
                 result_lines.append(line)
-        
+
         return '\n'.join(result_lines)
-    
+
     @classmethod
     def save_report(cls, report: Report) -> None:
         """保存报告元信息和完整报告"""
         cls._ensure_report_folder(report.report_id)
-        
+
         # 保存元信息JSON
         with open(cls._get_report_path(report.report_id), 'w', encoding='utf-8') as f:
             json.dump(report.to_dict(), f, ensure_ascii=False, indent=2)
-        
+
         # 保存大纲
         if report.outline:
             cls.save_outline(report.report_id, report.outline)
-        
+
         # 保存完整Markdown报告
         if report.markdown_content:
             with open(cls._get_report_markdown_path(report.report_id), 'w', encoding='utf-8') as f:
                 f.write(report.markdown_content)
-        
+
         logger.info(f"报告已保存: {report.report_id}")
-    
+
     @classmethod
     def get_report(cls, report_id: str) -> Optional[Report]:
         """获取报告"""
         path = cls._get_report_path(report_id)
-        
+
         if not os.path.exists(path):
             # 兼容旧格式：检查直接存储在reports目录下的文件
             old_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.json")
@@ -2454,10 +2749,10 @@ class ReportManager:
                 path = old_path
             else:
                 return None
-        
+
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        
+
         # 重建Report对象
         outline = None
         if data.get('outline'):
@@ -2473,7 +2768,7 @@ class ReportManager:
                 summary=outline_data['summary'],
                 sections=sections
             )
-        
+
         # 如果markdown_content为空，尝试从full_report.md读取
         markdown_content = data.get('markdown_content', '')
         if not markdown_content:
@@ -2481,7 +2776,7 @@ class ReportManager:
             if os.path.exists(full_report_path):
                 with open(full_report_path, 'r', encoding='utf-8') as f:
                     markdown_content = f.read()
-        
+
         return Report(
             report_id=data['report_id'],
             simulation_id=data['simulation_id'],
@@ -2494,12 +2789,12 @@ class ReportManager:
             completed_at=data.get('completed_at', ''),
             error=data.get('error')
         )
-    
+
     @classmethod
     def get_report_by_simulation(cls, simulation_id: str) -> Optional[Report]:
         """根据模拟ID获取报告"""
         cls._ensure_reports_dir()
-        
+
         for item in os.listdir(cls.REPORTS_DIR):
             item_path = os.path.join(cls.REPORTS_DIR, item)
             # 新格式：文件夹
@@ -2513,14 +2808,14 @@ class ReportManager:
                 report = cls.get_report(report_id)
                 if report and report.simulation_id == simulation_id:
                     return report
-        
+
         return None
-    
+
     @classmethod
     def list_reports(cls, simulation_id: Optional[str] = None, limit: int = 50) -> List[Report]:
         """列出报告"""
         cls._ensure_reports_dir()
-        
+
         reports = []
         for item in os.listdir(cls.REPORTS_DIR):
             item_path = os.path.join(cls.REPORTS_DIR, item)
@@ -2537,35 +2832,79 @@ class ReportManager:
                 if report:
                     if simulation_id is None or report.simulation_id == simulation_id:
                         reports.append(report)
-        
+
         # 按创建时间倒序
         reports.sort(key=lambda r: r.created_at, reverse=True)
-        
+
         return reports[:limit]
-    
+
     @classmethod
     def delete_report(cls, report_id: str) -> bool:
         """删除报告（整个文件夹）"""
         import shutil
-        
+
         folder_path = cls._get_report_folder(report_id)
-        
+
         # 新格式：删除整个文件夹
         if os.path.exists(folder_path) and os.path.isdir(folder_path):
             shutil.rmtree(folder_path)
             logger.info(f"报告文件夹已删除: {report_id}")
             return True
-        
+
         # 兼容旧格式：删除单独的文件
         deleted = False
         old_json_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.json")
         old_md_path = os.path.join(cls.REPORTS_DIR, f"{report_id}.md")
-        
+
         if os.path.exists(old_json_path):
             os.remove(old_json_path)
             deleted = True
         if os.path.exists(old_md_path):
             os.remove(old_md_path)
             deleted = True
-        
+
         return deleted
+
+    @classmethod
+    def _get_structured_report_path(cls, report_id: str) -> str:
+        """获取结构化报告JSON文件路径"""
+        return os.path.join(cls._get_report_folder(report_id), "structured_report.json")
+
+    @classmethod
+    def save_structured_report(
+        cls,
+        report_id: str,
+        structured_report: StructuredInvestmentReport
+    ) -> None:
+        """
+        保存结构化投资报告
+
+        Args:
+            report_id: 报告ID
+            structured_report: 结构化报告对象
+        """
+        cls._ensure_report_folder(report_id)
+
+        with open(cls._get_structured_report_path(report_id), 'w', encoding='utf-8') as f:
+            json.dump(structured_report.to_dict(), f, ensure_ascii=False, indent=2)
+
+        logger.info(f"结构化报告已保存: {report_id}")
+
+    @classmethod
+    def get_structured_report(cls, report_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取结构化投资报告
+
+        Args:
+            report_id: 报告ID
+
+        Returns:
+            结构化报告字典，如果不存在返回None
+        """
+        path = cls._get_structured_report_path(report_id)
+
+        if not os.path.exists(path):
+            return None
+
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)

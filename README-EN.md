@@ -91,6 +91,47 @@ Click the image to watch MiroFish's deep prediction of the lost ending based on 
 4. **Report Generation**: ReportAgent with rich toolset for deep interaction with post-simulation environment
 5. **Deep Interaction**: Chat with any agent in the simulated world & Interact with ReportAgent
 
+## 📊 Agent Attribution & Track Record
+
+MiroFish includes a built-in **Agent Performance Ledger** that tracks prediction accuracy over time, enabling performance-weighted consensus and agent accountability.
+
+### Key Features
+
+- **Per-Agent Tracking**: Each agent's predictions are logged with confidence levels and outcomes
+- **Hit Rate & Calibration**: Measures accuracy (hit_rate) and confidence calibration (Brier score)
+- **Alpha Score**: Quantifies predictive edge above random baseline (hit_rate - 0.5)
+- **Weighted Consensus**: Report generation weights agent opinions by historical performance
+- **Leaderboard**: Interactive frontend dashboard showing top-performing agents
+
+### Performance Metrics
+
+| Metric | Description | Range |
+|--------|-------------|-------|
+| **Hit Rate** | Percentage of correct predictions | 0.0 - 1.0 |
+| **Calibration Score** | Brier score measuring confidence accuracy (lower is better) | 0.0 - 1.0 |
+| **Alpha Score** | Edge above random baseline | -0.5 - 0.5 |
+| **Avg Confidence** | Average confidence level in predictions | 0.0 - 1.0 |
+
+### API Endpoints
+
+```
+GET  /api/ledger/agents          # List all agents with stats
+GET  /api/ledger/agents/:id      # Get agent details and history
+GET  /api/ledger/top             # Get top-performing agents
+GET  /api/ledger/simulations     # List all simulations
+POST /api/ledger/resolve         # Record actual outcome and score agents
+GET  /api/ledger/weights         # Get performance-based agent weights
+GET  /api/ledger/stats           # Get overall ledger statistics
+```
+
+### Accessing the Leaderboard
+
+Navigate to `/leaderboard` in the frontend to view:
+- Overall system statistics (total agents, simulations, average performance)
+- Ranked list of top-performing agents with key metrics
+- Simulation history with pending/scored status
+- Ability to resolve simulations with actual outcomes
+
 ## 🚀 Quick Start
 
 ### Option 1: Source Code Deployment (Recommended)
